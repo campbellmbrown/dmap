@@ -13,7 +13,7 @@ async function createStore(): Promise<SessionStore> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "dmap-test-"));
   tempDirs.push(directory);
 
-  const store = new SessionStore(directory, "ABC123");
+  const store = new SessionStore(directory);
   await store.initialize();
   return store;
 }

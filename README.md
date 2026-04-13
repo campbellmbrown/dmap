@@ -11,10 +11,9 @@ A LAN-based D&D map viewer with real-time DM controls and synchronized player vi
 - Reveal and re-fog modes
 - Undo/redo fog strokes (up to 1000 history entries)
 - Pan/zoom camera with optional DM-to-player camera sync lock
-- Room code authentication per server launch
 - Localhost-only DM controls (players are read-only)
 - Debounced auto-save of session state every 500ms
-- LAN player URL with QR code displayed on DM page
+- LAN player URL displayed on DM page
 
 ## Requirements
 
@@ -53,7 +52,7 @@ npm run session
 ## Usage
 
 1. Start the server. The DM page opens at `http://localhost:4100/dm` (localhost only).
-2. The server prints a LAN URL and QR code — share this with players so they can connect from their devices on the same network.
+2. The server prints a LAN URL — share this with players so they can connect from their devices on the same network.
 3. On the DM page, upload a map (PNG, JPG, or PDF). For PDFs, pick the page to display.
 4. Use the brush or rectangle tool to reveal or re-fog areas of the map.
 5. Players see the current map state with fog applied. Toggle **camera sync** to lock the player view to the DM's current pan/zoom.

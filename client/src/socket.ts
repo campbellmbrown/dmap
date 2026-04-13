@@ -7,7 +7,6 @@ export interface SocketClient {
 
 interface SocketOptions {
   role: ClientRole;
-  roomCode?: string;
   onMessage: (message: ServerToClientMessage) => void;
   onStatus: (connected: boolean) => void;
   onError: (error: string) => void;
@@ -63,9 +62,6 @@ export function connectSocket(options: SocketOptions): SocketClient {
 
     const params = new URLSearchParams();
     params.set("role", options.role);
-    if (options.role === "player" && options.roomCode) {
-      params.set("roomCode", options.roomCode);
-    }
 
     socket = new WebSocket(`${protocol}://${window.location.host}/ws?${params.toString()}`);
 
@@ -87,7 +83,7 @@ export function connectSocket(options: SocketOptions): SocketClient {
       }
 
       if (options.role === "player" && event.code === 1008) {
-        options.onError("Connection rejected. Check the room code.");
+        options.onError("Connection rejected by server.");
         return;
       }
 

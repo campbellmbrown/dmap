@@ -93,8 +93,6 @@ export interface SessionSnapshot {
 export interface BootstrapResponse {
   dmUrl: string;
   playerUrl: string;
-  roomCode: string | null;
-  qrDataUrl: string;
 }
 
 export interface ServerErrorPayload {

@@ -1,5 +1,3 @@
-import QRCode from "qrcode";
-
 import { DEFAULT_HOST, DEFAULT_PORT } from "./constants";
 import { getLanAddress } from "./network";
 import { startServer } from "./server";
@@ -28,21 +26,13 @@ async function printStartupInfo(port: number): Promise<void> {
   const bootstrapUrl = `http://localhost:${port}/api/bootstrap`;
 
   const bootstrapResponse = await fetch(bootstrapUrl);
-  const bootstrapPayload = (await bootstrapResponse.json()) as {
-    playerUrl: string;
-    roomCode: string | null;
-  };
+  const bootstrapPayload = (await bootstrapResponse.json()) as { playerUrl: string };
 
   console.log("");
   console.log("DnD Map Viewer running");
   console.log(`DM URL:      ${dmUrl}`);
   console.log(`Player URL:  ${bootstrapPayload.playerUrl}`);
   console.log(`LAN address: ${lanAddress}`);
-  console.log(`Room code:   ${bootstrapPayload.roomCode ?? "<hidden>"}`);
-
-  const qrText = await QRCode.toString(bootstrapPayload.playerUrl, { type: "terminal", small: true });
-  console.log("");
-  console.log(qrText);
 }
 
 async function main(): Promise<void> {

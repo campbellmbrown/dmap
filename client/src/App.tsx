@@ -49,10 +49,6 @@ function roleFromPath(pathname: string): ClientRole {
   return "dm";
 }
 
-function roomCodeFromUrl(): string {
-  return new URLSearchParams(window.location.search).get("room") ?? "";
-}
-
 function buildCameraSyncMeta(camera: CameraState, viewport: { width: number; height: number }): CameraSyncMeta {
   const zoom = Math.max(0.0001, camera.zoom);
   return {
@@ -119,7 +115,6 @@ function fitAspect(bounds: { width: number; height: number }, targetAspect: numb
 
 export function App() {
   const role = useMemo(() => roleFromPath(window.location.pathname), []);
-  const [roomCode, setRoomCode] = useState(() => roomCodeFromUrl());
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [loadedMap, setLoadedMap] = useState<LoadedMapSurface | null>(null);
@@ -240,7 +235,7 @@ export function App() {
   }, [viewportSize]);
 
   useEffect(() => {
-    if (role !== "player" || !roomCode) {
+    if (role !== "player") {
       return;
     }
 
@@ -285,7 +280,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [connected, role, roomCode]);
+  }, [connected, role]);
 
   useEffect(() => {
     if (!snapshot?.session.fogState) {
@@ -408,13 +403,8 @@ export function App() {
   );
 
   useEffect(() => {
-    if (role === "player" && !roomCode) {
-      return;
-    }
-
     const socket = connectSocket({
       role,
-      roomCode,
       onStatus: (isConnected) => {
         setConnected(isConnected);
         if (isConnected) {
@@ -431,7 +421,7 @@ export function App() {
       socket.close();
       socketRef.current = null;
     };
-  }, [role, roomCode, handleSocketMessage]);
+  }, [role, handleSocketMessage]);
 
   const sendDmMessage = useCallback((payload: Parameters<SocketClient["send"]>[0]) => {
     socketRef.current?.send(payload);
@@ -722,29 +712,6 @@ export function App() {
     handleStroke(stroke);
   }, [fullMapStroke, handleStroke]);
 
-  if (role === "player" && !roomCode) {
-    return (
-      <main className="join-screen">
-        <h1>Join DnD Map Session</h1>
-        <p>Enter the room code shown on the DM screen.</p>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const input = new FormData(event.currentTarget).get("roomCode")?.toString() ?? "";
-            const trimmed = input.trim().toUpperCase();
-            setRoomCode(trimmed);
-            const url = new URL(window.location.href);
-            url.searchParams.set("room", trimmed);
-            window.history.replaceState({}, "", url.toString());
-          }}
-        >
-          <input name="roomCode" placeholder="Room code" maxLength={10} autoComplete="off" />
-          <button type="submit">Join</button>
-        </form>
-      </main>
-    );
-  }
-
   const activeMap = snapshot?.activeMap ?? null;
   const canEdit = role === "dm";
   const appShellClassName = canEdit ? "app-shell dm-mode" : "app-shell player-mode";
@@ -977,11 +944,9 @@ export function App() {
           {bootstrap ? (
             <section className="panel-group">
               <h2>Player Join</h2>
-              <p>Room code: {bootstrap.roomCode ?? "<hidden>"}</p>
               <a href={bootstrap.playerUrl} target="_blank" rel="noreferrer">
                 {bootstrap.playerUrl}
               </a>
-              <img src={bootstrap.qrDataUrl} alt="Player QR code" className="qr-image" />
             </section>
           ) : null}
         </aside>

@@ -64,8 +64,6 @@ export class SessionStore {
 
   private readonly fogByKey = new Map<string, FogHistoryState>();
 
-  private readonly roomCode: string;
-
   private activeMapId: string | null = null;
 
   private pdfPage = 1;
@@ -78,18 +76,13 @@ export class SessionStore {
 
   private saveTimer: NodeJS.Timeout | null = null;
 
-  public constructor(private readonly dataDir: string, roomCode: string) {
-    this.roomCode = roomCode;
+  public constructor(private readonly dataDir: string) {
     this.sessionFilePath = path.join(dataDir, SESSION_FILE_NAME);
   }
 
   public async initialize(): Promise<void> {
     await fs.mkdir(this.dataDir, { recursive: true });
     await this.loadFromDisk();
-  }
-
-  public getRoomCode(): string {
-    return this.roomCode;
   }
 
   public listMaps(): MapAsset[] {

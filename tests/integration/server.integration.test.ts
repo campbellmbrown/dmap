@@ -128,27 +128,14 @@ describe("server integration", () => {
     expect(response.statusCode).toBe(403);
   });
 
-  it("rejects player websocket with invalid room code", async () => {
-    const { baseUrl } = await startTestServer();
-    const wsUrl = baseUrl.replace("http", "ws");
-
-    const socket = new WebSocket(`${wsUrl}/ws?role=player&roomCode=WRONG1`);
-    const [code] = (await once(socket, "close")) as [number];
-
-    expect(code).toBe(1008);
-  });
-
   it(
     "fans out camera updates from DM to player",
     async () => {
       const { baseUrl } = await startTestServer();
 
-    const bootstrapResponse = await fetch(`${baseUrl}/api/bootstrap`);
-    const bootstrapPayload = (await bootstrapResponse.json()) as { roomCode: string };
-
     const wsBase = baseUrl.replace("http", "ws");
     const dmSocket = new WebSocket(`${wsBase}/ws?role=dm`);
-    const playerSocket = new WebSocket(`${wsBase}/ws?role=player&roomCode=${bootstrapPayload.roomCode}`);
+    const playerSocket = new WebSocket(`${wsBase}/ws?role=player`);
 
     await once(dmSocket, "open");
     await once(playerSocket, "open");
@@ -186,12 +173,9 @@ describe("server integration", () => {
     async () => {
       const { baseUrl } = await startTestServer();
 
-      const bootstrapResponse = await fetch(`${baseUrl}/api/bootstrap`);
-      const bootstrapPayload = (await bootstrapResponse.json()) as { roomCode: string };
-
       const wsBase = baseUrl.replace("http", "ws");
       const dmSocket = new WebSocket(`${wsBase}/ws?role=dm`);
-      const playerSocket = new WebSocket(`${wsBase}/ws?role=player&roomCode=${bootstrapPayload.roomCode}`);
+      const playerSocket = new WebSocket(`${wsBase}/ws?role=player`);
 
       await once(dmSocket, "open");
       await once(playerSocket, "open");

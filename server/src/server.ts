@@ -8,7 +8,6 @@ import Fastify, { type FastifyInstance } from "fastify";
 import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
-import QRCode from "qrcode";
 import WebSocket, { type RawData } from "ws";
 
 import type {
@@ -23,7 +22,7 @@ import { DEFAULT_HOST, DEFAULT_PORT } from "./constants";
 import { parseMapMetadata } from "./mapMetadata";
 import { getLanAddress, isLoopbackAddress } from "./network";
 import { SessionStore } from "./sessionStore";
-import { createRoomCode, extensionFromMimeType, sanitizeFileName } from "./utils";
+import { extensionFromMimeType, sanitizeFileName } from "./utils";
 
 export interface BuildServerOptions {
   port?: number;
@@ -100,12 +99,10 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   const dataDir = path.resolve(options.dataDir ?? path.join(process.cwd(), "data"));
   const mapDir = path.join(dataDir, "maps");
   const cacheDir = path.join(dataDir, "cache");
-  const roomCode = createRoomCode();
-
   await fs.mkdir(mapDir, { recursive: true });
   await fs.mkdir(cacheDir, { recursive: true });
 
-  const sessionStore = new SessionStore(dataDir, roomCode);
+  const sessionStore = new SessionStore(dataDir);
   await sessionStore.initialize();
 
   const app = Fastify({
@@ -159,20 +156,11 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
     });
   }
 
-  async function buildBootstrap(requestHostIsLocal: boolean): Promise<BootstrapResponse> {
+  function buildBootstrap(): BootstrapResponse {
     const lanAddress = getLanAddress();
-    const playerRoomCode = requestHostIsLocal ? sessionStore.getRoomCode() : null;
     const dmUrl = `http://localhost:${port}/dm`;
-    const playerBaseUrl = `http://${lanAddress}:${port}/player`;
-    const playerUrl = playerRoomCode ? `${playerBaseUrl}?room=${playerRoomCode}` : playerBaseUrl;
-    const qrDataUrl = await QRCode.toDataURL(playerUrl, { margin: 1, width: 256 });
-
-    return {
-      dmUrl,
-      playerUrl,
-      roomCode: playerRoomCode,
-      qrDataUrl
-    };
+    const playerUrl = `http://${lanAddress}:${port}/player`;
+    return { dmUrl, playerUrl };
   }
 
   function rejectIfNotLocal(requestIp: string, reply: { code: (statusCode: number) => unknown }): boolean {
@@ -184,8 +172,8 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
     return false;
   }
 
-  app.get("/api/bootstrap", async (request) => {
-    return buildBootstrap(isLoopbackAddress(request.ip));
+  app.get("/api/bootstrap", () => {
+    return buildBootstrap();
   });
 
   app.get("/api/teapot", async (_request, reply) => {
@@ -294,7 +282,6 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   app.get("/ws", { websocket: true }, (socket, request) => {
     const url = new URL(request.url, `http://${request.headers.host ?? "localhost"}`);
     const role = url.searchParams.get("role");
-    const requestedRoomCode = url.searchParams.get("roomCode");
 
     if (role !== "dm" && role !== "player") {
       socket.close(1008, "Unknown role");
@@ -303,11 +290,6 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
 
     if (role === "dm" && !isLoopbackAddress(request.ip)) {
       socket.close(1008, "DM websocket is localhost-only");
-      return;
-    }
-
-    if (role === "player" && requestedRoomCode !== sessionStore.getRoomCode()) {
-      socket.close(1008, "Invalid room code");
       return;
     }
 

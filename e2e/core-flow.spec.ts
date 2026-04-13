@@ -2,12 +2,9 @@ import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-test("dm and player pages connect and map upload updates session", async ({ page, context, request }) => {
-  const bootstrapResponse = await request.get("/api/bootstrap");
-  const bootstrapPayload = (await bootstrapResponse.json()) as { roomCode: string };
-
+test("dm and player pages connect and map upload updates session", async ({ page, context }) => {
   const playerPage = await context.newPage();
-  await playerPage.goto(`/player?room=${bootstrapPayload.roomCode}`);
+  await playerPage.goto("/player");
 
   await page.goto("/dm");
 

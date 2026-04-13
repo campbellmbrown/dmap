@@ -94,8 +94,7 @@ label {
 
 select,
 input[type="number"],
-input[type="text"],
-input[name="roomCode"] {
+input[type="text"] {
   width: 100%;
   padding: 7px 9px;
   border-radius: 6px;
@@ -129,14 +128,6 @@ button:hover,
   inset: 0;
   opacity: 0;
   cursor: pointer;
-}
-
-.qr-image {
-  width: 180px;
-  height: 180px;
-  background: #fff;
-  padding: 8px;
-  border-radius: 8px;
 }
 
 .viewport-shell {
@@ -230,20 +221,6 @@ button:hover,
   font-size: 0.85rem;
   min-width: 52px;
   text-align: center;
-}
-
-.join-screen {
-  min-height: 100%;
-  display: grid;
-  place-content: center;
-  gap: 12px;
-  text-align: center;
-}
-
-.join-screen form {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
 }
 
 @media (max-width: 960px) {
