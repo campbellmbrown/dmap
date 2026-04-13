@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 
 import type {
   BootstrapResponse,
@@ -73,6 +73,26 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function fitAspect(bounds: { width: number; height: number }, targetAspect: number): { width: number; height: number } {
+  if (!Number.isFinite(targetAspect) || targetAspect <= 0) {
+    return bounds;
+  }
+
+  const widthFromHeight = bounds.height * targetAspect;
+  if (widthFromHeight <= bounds.width) {
+    return {
+      width: Math.max(1, Math.floor(widthFromHeight)),
+      height: Math.max(1, Math.floor(bounds.height))
+    };
+  }
+
+  const heightFromWidth = bounds.width / targetAspect;
+  return {
+    width: Math.max(1, Math.floor(bounds.width)),
+    height: Math.max(1, Math.floor(heightFromWidth))
+  };
+}
+
 export function App() {
   const role = useMemo(() => roleFromPath(window.location.pathname), []);
   const [roomCode, setRoomCode] = useState(() => roomCodeFromUrl());
@@ -87,6 +107,10 @@ export function App() {
   const [uploading, setUploading] = useState(false);
   const [dmTool, setDmTool] = useState<"brush" | "pan">("brush");
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
+    width: Math.max(1, window.innerWidth),
+    height: Math.max(1, window.innerHeight)
+  });
+  const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({
     width: Math.max(1, window.innerWidth),
     height: Math.max(1, window.innerHeight)
   });
@@ -123,9 +147,14 @@ export function App() {
 
   useEffect(() => {
     const onResize = (): void => {
-      setViewportSize({
+      const nextWindowSize = {
         width: Math.max(1, window.innerWidth),
         height: Math.max(1, window.innerHeight)
+      };
+      setWindowSize(nextWindowSize);
+      setViewportSize({
+        width: nextWindowSize.width,
+        height: nextWindowSize.height
       });
     };
 
@@ -559,6 +588,24 @@ export function App() {
   const activeMap = snapshot?.activeMap ?? null;
   const canEdit = role === "dm";
   const appShellClassName = canEdit ? "app-shell dm-mode" : "app-shell player-mode";
+  const viewportShellClassName = canEdit ? "viewport-shell" : "viewport-shell player-viewport-shell";
+
+  const playerFrameStyle = useMemo<CSSProperties | undefined>(() => {
+    if (canEdit) {
+      return undefined;
+    }
+
+    const cameraSync = snapshot?.session.cameraSync;
+    if (!cameraSync || cameraSync.viewportWidth <= 0 || cameraSync.viewportHeight <= 0) {
+      return undefined;
+    }
+
+    const fitted = fitAspect(windowSize, cameraSync.viewportWidth / cameraSync.viewportHeight);
+    return {
+      width: `${fitted.width}px`,
+      height: `${fitted.height}px`
+    };
+  }, [canEdit, snapshot?.session.cameraSync, windowSize]);
 
   return (
     <div className={appShellClassName}>
@@ -696,18 +743,20 @@ export function App() {
         </aside>
       )}
 
-      <main className="viewport-shell">
-        <MapViewport
-          mode={role}
-          mapSurface={loadedMap}
-          fog={localFog}
-          camera={camera}
-          brush={brush}
-          activeTool={canEdit ? dmTool : "brush"}
-          onCameraChange={canEdit ? handleCameraChange : undefined}
-          onStroke={canEdit ? handleStroke : undefined}
-          onViewportChange={(size) => setViewportSize(size)}
-        />
+      <main className={viewportShellClassName}>
+        <div className={canEdit ? "viewport-frame" : "viewport-frame player-frame"} style={playerFrameStyle}>
+          <MapViewport
+            mode={role}
+            mapSurface={loadedMap}
+            fog={localFog}
+            camera={camera}
+            brush={brush}
+            activeTool={canEdit ? dmTool : "brush"}
+            onCameraChange={canEdit ? handleCameraChange : undefined}
+            onStroke={canEdit ? handleStroke : undefined}
+            onViewportChange={(size) => setViewportSize(size)}
+          />
+        </div>
         {canEdit ? (
           <div className="zoom-overlay">
             <button type="button" onClick={() => setZoomLevel(camera.zoom + 0.2)}>
