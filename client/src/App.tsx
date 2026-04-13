@@ -23,6 +23,18 @@ const DEFAULT_BRUSH: BrushConfig = {
   mode: "reveal"
 };
 
+interface RectangleToolConfig {
+  mode: BrushConfig["mode"];
+  roundness: number;
+  softness: number;
+}
+
+const DEFAULT_RECTANGLE_TOOL: RectangleToolConfig = {
+  mode: "reveal",
+  roundness: 0.08,
+  softness: 0.08
+};
+
 function cloneFogState(fog: LocalFogState): LocalFogState {
   return {
     ...fog,
@@ -105,7 +117,8 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [dmTool, setDmTool] = useState<"brush" | "pan">("brush");
+  const [dmTool, setDmTool] = useState<"brush" | "pan" | "rect">("brush");
+  const [rectangleTool, setRectangleTool] = useState<RectangleToolConfig>(DEFAULT_RECTANGLE_TOOL);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
     width: Math.max(1, window.innerWidth),
     height: Math.max(1, window.innerHeight)
@@ -657,6 +670,13 @@ export function App() {
               >
                 Pan
               </button>
+              <button
+                type="button"
+                className={dmTool === "rect" ? "active-tool" : undefined}
+                onClick={() => setDmTool("rect")}
+              >
+                Rectangle
+              </button>
             </div>
           </section>
 
@@ -712,6 +732,62 @@ export function App() {
             </label>
           </section>
 
+          <section className="panel-group">
+            <h2>Rectangle</h2>
+            <label>
+              Mode
+              <select
+                value={rectangleTool.mode}
+                disabled={dmTool !== "rect"}
+                onChange={(event) =>
+                  setRectangleTool((current) => ({
+                    ...current,
+                    mode: event.target.value as BrushConfig["mode"]
+                  }))
+                }
+              >
+                <option value="reveal">Reveal</option>
+                <option value="refog">Re-fog</option>
+              </select>
+            </label>
+
+            <label>
+              Roundness: {Math.round(rectangleTool.roundness * 100)}%
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={rectangleTool.roundness}
+                disabled={dmTool !== "rect"}
+                onChange={(event) =>
+                  setRectangleTool((current) => ({
+                    ...current,
+                    roundness: Number(event.target.value)
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              Softness: {rectangleTool.softness.toFixed(2)}
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={rectangleTool.softness}
+                disabled={dmTool !== "rect"}
+                onChange={(event) =>
+                  setRectangleTool((current) => ({
+                    ...current,
+                    softness: Number(event.target.value)
+                  }))
+                }
+              />
+            </label>
+          </section>
+
           <section className="panel-group row-actions">
             <button type="button" onClick={toggleSyncLock}>
               Camera Sync: {snapshot?.session.syncLock ? "Locked" : "Unlocked"}
@@ -752,6 +828,7 @@ export function App() {
             camera={camera}
             brush={brush}
             activeTool={canEdit ? dmTool : "brush"}
+            rectangleTool={rectangleTool}
             onCameraChange={canEdit ? handleCameraChange : undefined}
             onStroke={canEdit ? handleStroke : undefined}
             onViewportChange={(size) => setViewportSize(size)}

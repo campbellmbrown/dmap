@@ -85,6 +85,72 @@ describe("fogEngine", () => {
     expect(getPixel(mask, 100, 100)).toBe(255);
   });
 
+  it("supports rectangle reveal strokes", () => {
+    const mask = createFullFogMask(meta.maskWidth, meta.maskHeight);
+
+    applyStrokeToMask(mask, meta, {
+      brush: { shape: "square", sizePx: 1, hardness: 1, mode: "reveal" },
+      pointsWorld: [],
+      timestamp: 1,
+      rectangle: {
+        x: 60,
+        y: 70,
+        width: 90,
+        height: 50,
+        roundness: 0,
+        softness: 0,
+        mode: "reveal"
+      }
+    });
+
+    expect(getPixel(mask, 80, 90)).toBe(0);
+    expect(getPixel(mask, 20, 20)).toBe(255);
+  });
+
+  it("supports rectangle roundness and softness", () => {
+    const hardMask = createFullFogMask(meta.maskWidth, meta.maskHeight);
+    const softMask = createFullFogMask(meta.maskWidth, meta.maskHeight);
+
+    const roundedRectangleStroke: FogStroke = {
+      brush: { shape: "square", sizePx: 1, hardness: 1, mode: "reveal" },
+      pointsWorld: [],
+      timestamp: 1,
+      rectangle: {
+        x: 60,
+        y: 60,
+        width: 80,
+        height: 80,
+        roundness: 0.6,
+        softness: 0,
+        mode: "reveal"
+      }
+    };
+
+    applyStrokeToMask(hardMask, meta, roundedRectangleStroke);
+    expect(getPixel(hardMask, 100, 100)).toBe(0);
+    expect(getPixel(hardMask, 60, 60)).toBe(255);
+
+    applyStrokeToMask(
+      softMask,
+      meta,
+      {
+        ...roundedRectangleStroke,
+        rectangle: {
+          ...roundedRectangleStroke.rectangle!,
+          x: 50,
+          y: 50,
+          width: 100,
+          height: 100,
+          roundness: 0,
+          softness: 0.2
+        }
+      }
+    );
+
+    expect(getPixel(softMask, 152, 100)).toBeLessThan(255);
+    expect(getPixel(softMask, 152, 100)).toBeGreaterThan(0);
+  });
+
   it("replayStrokes is deterministic for undo/redo history index", () => {
     const strokeA = buildStroke({ pointsWorld: [{ x: 80, y: 80 }] });
     const strokeB = buildStroke({ pointsWorld: [{ x: 120, y: 120 }] });

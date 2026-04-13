@@ -28,11 +28,22 @@ export interface BrushConfig {
   mode: BrushMode;
 }
 
+export interface RectangleConfig {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  roundness: number;
+  softness: number;
+  mode: BrushMode;
+}
+
 export interface FogStroke {
   brush: BrushConfig;
   pointsWorld: Point[];
   timestamp: number;
   strokeGroupId?: string;
+  rectangle?: RectangleConfig;
 }
 
 export interface MapPageMeta {

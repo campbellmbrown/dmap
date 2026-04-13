@@ -179,6 +179,10 @@ button:hover,
   cursor: crosshair;
 }
 
+.map-canvas.rect-mode {
+  cursor: crosshair;
+}
+
 .map-canvas.pan-mode {
   cursor: grab;
 }

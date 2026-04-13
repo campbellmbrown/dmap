@@ -7,7 +7,7 @@ import {
   type WheelEvent as ReactWheelEvent
 } from "react";
 
-import type { BrushConfig, CameraState, FogStroke } from "@shared/types";
+import type { BrushConfig, CameraState, FogStroke, Point } from "@shared/types";
 import type { LoadedMapSurface } from "./mapLoader";
 import { fogToImageData, type LocalFogState } from "./fogClient";
 
@@ -17,7 +17,12 @@ interface MapViewportProps {
   fog: LocalFogState | null;
   camera: CameraState;
   brush: BrushConfig;
-  activeTool?: "brush" | "pan";
+  activeTool?: "brush" | "pan" | "rect";
+  rectangleTool?: {
+    mode: BrushConfig["mode"];
+    roundness: number;
+    softness: number;
+  };
   onCameraChange?: (camera: CameraState, viewport: { width: number; height: number }) => void;
   onStroke?: (stroke: FogStroke) => void;
   onViewportChange?: (size: { width: number; height: number }) => void;
@@ -25,22 +30,72 @@ interface MapViewportProps {
 
 interface DragState {
   pointerId: number;
-  type: "pan" | "paint";
+  type: "pan" | "paint" | "rect";
   startX: number;
   startY: number;
   startCamera: CameraState;
   lastPaintPoint: { x: number; y: number } | null;
   strokeGroupId: string | null;
+  rectStartWorld: Point | null;
+  rectCurrentWorld: Point | null;
+}
+
+interface RectPreview {
+  start: Point;
+  end: Point;
+}
+
+interface NormalizedRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizedRect(start: Point, end: Point): NormalizedRect {
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  return {
+    x,
+    y,
+    width: Math.max(0, Math.abs(end.x - start.x)),
+    height: Math.max(0, Math.abs(end.y - start.y))
+  };
+}
+
+function traceRoundedRect(
+  context: CanvasRenderingContext2D,
+  rect: NormalizedRect,
+  cornerRadius: number
+): void {
+  const radius = clamp(cornerRadius, 0, Math.min(rect.width, rect.height) / 2);
+  const x = rect.x;
+  const y = rect.y;
+  const right = x + rect.width;
+  const bottom = y + rect.height;
+
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.lineTo(right - radius, y);
+  context.quadraticCurveTo(right, y, right, y + radius);
+  context.lineTo(right, bottom - radius);
+  context.quadraticCurveTo(right, bottom, right - radius, bottom);
+  context.lineTo(x + radius, bottom);
+  context.quadraticCurveTo(x, bottom, x, bottom - radius);
+  context.lineTo(x, y + radius);
+  context.quadraticCurveTo(x, y, x + radius, y);
+  context.closePath();
+}
+
 export function MapViewport(props: MapViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const [hoverWorldPoint, setHoverWorldPoint] = useState<{ x: number; y: number } | null>(null);
+  const [rectanglePreview, setRectanglePreview] = useState<RectPreview | null>(null);
 
   const createStrokeGroupId = (): string => {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -58,7 +113,9 @@ export function MapViewport(props: MapViewportProps) {
     };
   };
 
-  const isBrushToolActive = props.mode === "dm" && (props.activeTool ?? "brush") === "brush";
+  const activeTool = props.activeTool ?? "brush";
+  const isBrushToolActive = props.mode === "dm" && activeTool === "brush";
+  const isRectToolActive = props.mode === "dm" && activeTool === "rect";
 
   const fogCanvas = useMemo(() => {
     if (!props.fog) {
@@ -159,6 +216,25 @@ export function MapViewport(props: MapViewportProps) {
 
         context.restore();
       }
+
+      if (isRectToolActive && rectanglePreview) {
+        const rectPreview = normalizedRect(rectanglePreview.start, rectanglePreview.end);
+        if (rectPreview.width > 0 && rectPreview.height > 0) {
+          const roundness = clamp(props.rectangleTool?.roundness ?? 0, 0, 1);
+          const cornerRadius = (Math.min(rectPreview.width, rectPreview.height) / 2) * roundness;
+
+          context.save();
+          context.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+          context.scale(camera.zoom, camera.zoom);
+          context.lineWidth = Math.max(1, 1.5 / camera.zoom);
+          context.strokeStyle = "rgba(255, 255, 255, 0.95)";
+          context.fillStyle = "rgba(255, 255, 255, 0.12)";
+          traceRoundedRect(context, rectPreview, cornerRadius);
+          context.fill();
+          context.stroke();
+          context.restore();
+        }
+      }
     };
 
     render();
@@ -187,11 +263,14 @@ export function MapViewport(props: MapViewportProps) {
     props.fog,
     props.mapSurface,
     isBrushToolActive,
+    isRectToolActive,
     props.brush.shape,
     props.brush.sizePx,
+    props.rectangleTool?.roundness,
     props.onViewportChange,
     fogCanvas,
-    hoverWorldPoint
+    hoverWorldPoint,
+    rectanglePreview
   ]);
 
   const toWorldPoint = (clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -218,16 +297,20 @@ export function MapViewport(props: MapViewportProps) {
       return;
     }
 
-    const isPanTool = (props.activeTool ?? "brush") === "pan";
-    const isPanStart = isPanTool ? event.button === 0 || event.button === 1 || event.button === 2 : event.button === 1 || event.button === 2;
-    const isPaintStart = !isPanTool && event.button === 0;
+    const isPanTool = activeTool === "pan";
+    const isRectTool = activeTool === "rect";
+    const isPanStart = isPanTool
+      ? event.button === 0 || event.button === 1 || event.button === 2
+      : event.button === 1 || event.button === 2;
+    const isPaintStart = activeTool === "brush" && event.button === 0;
+    const isRectStart = isRectTool && event.button === 0;
 
-    if (!isPanStart && !isPaintStart) {
+    if (!isPanStart && !isPaintStart && !isRectStart) {
       return;
     }
 
     const worldPoint = toWorldPoint(event.clientX, event.clientY);
-    if (!worldPoint && isPaintStart) {
+    if (!worldPoint && (isPaintStart || isRectStart)) {
       return;
     }
     setHoverWorldPoint(worldPoint);
@@ -243,14 +326,23 @@ export function MapViewport(props: MapViewportProps) {
       });
     }
 
+    if (isRectStart && worldPoint) {
+      setRectanglePreview({
+        start: worldPoint,
+        end: worldPoint
+      });
+    }
+
     dragStateRef.current = {
       pointerId: event.pointerId,
-      type: isPanStart ? "pan" : "paint",
+      type: isPanStart ? "pan" : isRectStart ? "rect" : "paint",
       startX: event.clientX,
       startY: event.clientY,
       startCamera: props.camera,
       lastPaintPoint: worldPoint ?? null,
-      strokeGroupId
+      strokeGroupId,
+      rectStartWorld: isRectStart ? worldPoint : null,
+      rectCurrentWorld: isRectStart ? worldPoint : null
     };
 
     (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
@@ -281,6 +373,20 @@ export function MapViewport(props: MapViewportProps) {
         y: dragState.startCamera.y - dy / props.camera.zoom,
         zoom: props.camera.zoom
       }, currentViewportSize());
+      return;
+    }
+
+    if (dragState.type === "rect") {
+      const worldPoint = toWorldPoint(event.clientX, event.clientY);
+      if (!worldPoint || !dragState.rectStartWorld) {
+        return;
+      }
+
+      dragState.rectCurrentWorld = worldPoint;
+      setRectanglePreview({
+        start: dragState.rectStartWorld,
+        end: worldPoint
+      });
       return;
     }
 
@@ -328,6 +434,30 @@ export function MapViewport(props: MapViewportProps) {
       return;
     }
 
+    if (dragState.type === "rect" && props.onStroke && dragState.rectStartWorld && dragState.rectCurrentWorld) {
+      const rect = normalizedRect(dragState.rectStartWorld, dragState.rectCurrentWorld);
+      if (rect.width >= 1 && rect.height >= 1) {
+        props.onStroke({
+          brush: {
+            ...props.brush,
+            mode: props.rectangleTool?.mode ?? props.brush.mode
+          },
+          pointsWorld: [],
+          timestamp: Date.now(),
+          rectangle: {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            roundness: clamp(props.rectangleTool?.roundness ?? 0, 0, 1),
+            softness: clamp(props.rectangleTool?.softness ?? 0, 0, 1),
+            mode: props.rectangleTool?.mode ?? props.brush.mode
+          }
+        });
+      }
+      setRectanglePreview(null);
+    }
+
     dragStateRef.current = null;
     (event.target as HTMLCanvasElement).releasePointerCapture(event.pointerId);
   };
@@ -362,15 +492,22 @@ export function MapViewport(props: MapViewportProps) {
     }, currentViewportSize());
   };
 
+  const cursorClassName =
+    props.mode === "dm" && activeTool === "pan" ? "pan-mode" : props.mode === "dm" && activeTool === "rect" ? "rect-mode" : "brush-mode";
+
   return (
     <canvas
       ref={canvasRef}
-      className={`map-canvas ${props.mode === "dm" && (props.activeTool ?? "brush") === "pan" ? "pan-mode" : "brush-mode"}`}
+      className={`map-canvas ${cursorClassName}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onPointerLeave={() => setHoverWorldPoint(null)}
+      onPointerLeave={() => {
+        if (!dragStateRef.current) {
+          setHoverWorldPoint(null);
+        }
+      }}
       onWheel={onWheel}
       onContextMenu={(event) => event.preventDefault()}
     />

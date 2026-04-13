@@ -1,4 +1,4 @@
-import type { BrushConfig, FogStroke } from "./types";
+import type { BrushConfig, BrushMode, FogStroke, RectangleConfig } from "./types";
 
 const MAX_FOG_VALUE = 255;
 const DEFAULT_MAX_MASK_SIDE = 2048;
@@ -74,6 +74,18 @@ function applyCoverage(currentValue: number, mode: BrushConfig["mode"], coverage
   return Math.round(currentValue + (MAX_FOG_VALUE - currentValue) * coverage);
 }
 
+function applyModeCoverage(currentValue: number, mode: BrushMode, coverage: number): number {
+  if (coverage <= 0) {
+    return currentValue;
+  }
+
+  if (mode === "reveal") {
+    return Math.round(currentValue * (1 - coverage));
+  }
+
+  return Math.round(currentValue + (MAX_FOG_VALUE - currentValue) * coverage);
+}
+
 function drawDab(
   mask: Uint8ClampedArray,
   meta: FogRasterMeta,
@@ -119,7 +131,99 @@ function worldToMaskY(meta: FogRasterMeta, worldY: number): number {
   return (worldY / meta.worldHeight) * meta.maskHeight;
 }
 
+function signedDistanceToRoundedRect(
+  pointX: number,
+  pointY: number,
+  centerX: number,
+  centerY: number,
+  halfWidth: number,
+  halfHeight: number,
+  radius: number
+): number {
+  const px = Math.abs(pointX - centerX);
+  const py = Math.abs(pointY - centerY);
+
+  const innerHalfWidth = Math.max(0, halfWidth - radius);
+  const innerHalfHeight = Math.max(0, halfHeight - radius);
+
+  const qx = px - innerHalfWidth;
+  const qy = py - innerHalfHeight;
+  const outX = Math.max(qx, 0);
+  const outY = Math.max(qy, 0);
+  const outsideDistance = Math.sqrt(outX * outX + outY * outY);
+  const insideDistance = Math.min(Math.max(qx, qy), 0);
+
+  return outsideDistance + insideDistance - radius;
+}
+
+function applyRectangleToMask(mask: Uint8ClampedArray, meta: FogRasterMeta, rectangle: RectangleConfig): void {
+  const left = worldToMaskX(meta, rectangle.x);
+  const top = worldToMaskY(meta, rectangle.y);
+  const right = worldToMaskX(meta, rectangle.x + rectangle.width);
+  const bottom = worldToMaskY(meta, rectangle.y + rectangle.height);
+
+  const minXWorld = Math.min(left, right);
+  const maxXWorld = Math.max(left, right);
+  const minYWorld = Math.min(top, bottom);
+  const maxYWorld = Math.max(top, bottom);
+
+  const width = maxXWorld - minXWorld;
+  const height = maxYWorld - minYWorld;
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  const centerX = minXWorld + halfWidth;
+  const centerY = minYWorld + halfHeight;
+
+  const roundness = clamp(rectangle.roundness, 0, 1);
+  const softness = clamp(rectangle.softness, 0, 1);
+
+  const cornerRadius = Math.min(halfWidth, halfHeight) * roundness;
+  const featherPx = Math.max(0, softness * Math.min(halfWidth, halfHeight));
+
+  const minX = Math.max(0, Math.floor(minXWorld - featherPx - 2));
+  const maxX = Math.min(meta.maskWidth - 1, Math.ceil(maxXWorld + featherPx + 2));
+  const minY = Math.max(0, Math.floor(minYWorld - featherPx - 2));
+  const maxY = Math.min(meta.maskHeight - 1, Math.ceil(maxYWorld + featherPx + 2));
+
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      const signedDistance = signedDistanceToRoundedRect(
+        x + 0.5,
+        y + 0.5,
+        centerX,
+        centerY,
+        halfWidth,
+        halfHeight,
+        cornerRadius
+      );
+
+      let coverage = 0;
+      if (signedDistance <= 0) {
+        coverage = 1;
+      } else if (featherPx > 0) {
+        coverage = clamp(1 - signedDistance / featherPx, 0, 1);
+      }
+
+      if (coverage <= 0) {
+        continue;
+      }
+
+      const index = y * meta.maskWidth + x;
+      mask[index] = applyModeCoverage(mask[index], rectangle.mode, coverage);
+    }
+  }
+}
+
 export function applyStrokeToMask(mask: Uint8ClampedArray, meta: FogRasterMeta, stroke: FogStroke): void {
+  if (stroke.rectangle) {
+    applyRectangleToMask(mask, meta, stroke.rectangle);
+    return;
+  }
+
   if (stroke.pointsWorld.length === 0) {
     return;
   }
