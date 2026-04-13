@@ -1,0 +1,64 @@
+{
+  "name": "dmap",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LAN DnD map viewer with DM fog-of-war controls and synced player view",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "doctor": "node ./scripts/doctor.mjs",
+    "dev": "npm run doctor && concurrently -k -n SERVER,CLIENT -c green,cyan \"tsx watch server/src/index.ts --dev\" \"vite --host\"",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsup server/src/index.ts --format esm --target node22 --out-dir dist/server --clean --sourcemap",
+    "start": "node dist/server/index.js",
+    "session": "npm run doctor && npm run build && npm run start",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e:install": "playwright install",
+    "test:e2e": "playwright test"
+  },
+  "keywords": [
+    "dnd",
+    "map",
+    "fog-of-war",
+    "lan"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/static": "^9.0.0",
+    "@fastify/websocket": "^11.2.0",
+    "fastify": "^5.8.2",
+    "image-size": "^2.0.2",
+    "mime-types": "^3.0.2",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.5.207",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^25.5.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.0",
+    "@vitest/coverage-v8": "^4.1.0",
+    "concurrently": "^9.2.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.0"
+  }
+}

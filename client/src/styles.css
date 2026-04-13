@@ -1,0 +1,161 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "Aptos", sans-serif;
+  background: radial-gradient(circle at 20% 10%, #253347, #0f141d 58%);
+  color: #f0f3f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) 1fr;
+  width: 100%;
+  height: 100%;
+}
+
+.dm-panel {
+  overflow-y: auto;
+  padding: 16px;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(35, 42, 56, 0.96), rgba(18, 23, 34, 0.96));
+}
+
+.dm-panel h1,
+.dm-panel h2 {
+  margin: 0 0 8px;
+}
+
+.panel-group {
+  margin-bottom: 18px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(15, 20, 30, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: grid;
+  gap: 10px;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.status-row,
+.error-text {
+  margin: 0 0 10px;
+}
+
+.error-text {
+  color: #ff9f9f;
+}
+
+.map-name {
+  font-size: 0.95rem;
+  color: #dfdfdf;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+select,
+input[type="number"],
+input[type="text"],
+input[name="roomCode"] {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+
+button,
+.file-upload span {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover,
+.file-upload span:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.file-upload {
+  position: relative;
+}
+
+.file-upload input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.qr-image {
+  width: 180px;
+  height: 180px;
+  background: #fff;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.viewport-shell {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+}
+
+.map-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  background: #0a0d14;
+}
+
+.join-screen {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.join-screen form {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+@media (max-width: 960px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .dm-panel {
+    max-height: 45vh;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  }
+}
