@@ -188,6 +188,11 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
     return buildBootstrap(isLoopbackAddress(request.ip));
   });
 
+  app.get("/api/teapot", async (_request, reply) => {
+    reply.code(418);
+    return { message: "I'm a teapot" };
+  });
+
   app.get("/api/session", async () => {
     return sessionStore.getSnapshot();
   });
@@ -413,6 +418,48 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
     }
 
     return reply.redirect("/player");
+  });
+
+  app.get("/teapot", async (_request, reply) => {
+    return reply
+      .code(418)
+      .type("text/html; charset=utf-8")
+      .send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>418 I'm a teapot</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at 20% 10%, #2b1b1b, #110d0d 60%);
+        color: #f6e7d5;
+        font-family: "Segoe UI", "Aptos", sans-serif;
+      }
+      .card {
+        width: min(560px, 92vw);
+        padding: 24px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(0, 0, 0, 0.35);
+      }
+      h1 { margin: 0 0 8px; font-size: clamp(1.6rem, 4vw, 2.2rem); }
+      p { margin: 0; line-height: 1.45; color: #f2d9bf; }
+      code { background: rgba(255, 255, 255, 0.12); padding: 2px 6px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>418 - I'm a teapot</h1>
+      <p>This endpoint refuses to brew coffee. Try <code>/api/teapot</code> for JSON.</p>
+    </main>
+  </body>
+</html>`);
   });
 
   app.get("/dm", async (request, reply) => {

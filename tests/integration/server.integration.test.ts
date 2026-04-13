@@ -91,6 +91,31 @@ afterEach(async () => {
 });
 
 describe("server integration", () => {
+  it("returns HTTP 418 teapot page", async () => {
+    const { app } = await startTestServer();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/teapot"
+    });
+
+    expect(response.statusCode).toBe(418);
+    expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.body).toContain("418 - I'm a teapot");
+  });
+
+  it("returns HTTP 418 for teapot endpoint", async () => {
+    const { app } = await startTestServer();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/teapot"
+    });
+
+    expect(response.statusCode).toBe(418);
+    expect(response.json()).toEqual({ message: "I'm a teapot" });
+  });
+
   it("rejects non-loopback DM route", async () => {
     const { app } = await startTestServer();
 

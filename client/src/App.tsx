@@ -37,8 +37,7 @@ const DEFAULT_RECTANGLE_TOOL: RectangleToolConfig = {
 
 function cloneFogState(fog: LocalFogState): LocalFogState {
   return {
-    ...fog,
-    mask: new Uint8ClampedArray(fog.mask)
+    ...fog
   };
 }
 
@@ -130,6 +129,8 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [drawSyncEnabled, setDrawSyncEnabled] = useState(true);
+  const [queuedStrokeCount, setQueuedStrokeCount] = useState(0);
   const [dmTool, setDmTool] = useState<"brush" | "pan" | "rect">("brush");
   const [rectangleTool, setRectangleTool] = useState<RectangleToolConfig>(DEFAULT_RECTANGLE_TOOL);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
@@ -146,6 +147,7 @@ export function App() {
   });
 
   const socketRef = useRef<SocketClient | null>(null);
+  const queuedStrokesRef = useRef<FogStroke[]>([]);
   const viewportShellRef = useRef<HTMLElement | null>(null);
   const lastPublishedViewportRef = useRef<{ width: number; height: number } | null>(null);
   const syncLockRef = useRef<boolean>(true);
@@ -291,8 +293,15 @@ export function App() {
       return;
     }
 
-    setLocalFog(fromServerFogState(snapshot.session.fogState));
-  }, [snapshot?.session.fogState]);
+    const nextFog = fromServerFogState(snapshot.session.fogState);
+    if (role === "dm" && queuedStrokesRef.current.length > 0) {
+      for (const queuedStroke of queuedStrokesRef.current) {
+        applyStrokeToLocalFog(nextFog, queuedStroke);
+      }
+    }
+
+    setLocalFog(nextFog);
+  }, [role, snapshot?.session.fogState]);
 
   useEffect(() => {
     const activeMap = snapshot?.activeMap;
@@ -428,6 +437,23 @@ export function App() {
     socketRef.current?.send(payload);
   }, []);
 
+  const flushQueuedStrokes = useCallback(() => {
+    if (role !== "dm" || !connected || queuedStrokesRef.current.length === 0) {
+      return;
+    }
+
+    const pending = queuedStrokesRef.current;
+    queuedStrokesRef.current = [];
+    setQueuedStrokeCount(0);
+
+    for (const stroke of pending) {
+      sendDmMessage({
+        type: "dm.fog.stroke",
+        payload: { stroke }
+      });
+    }
+  }, [connected, role, sendDmMessage]);
+
   useEffect(() => {
     if (role !== "dm" || !connected || !snapshot?.session.syncLock) {
       return;
@@ -447,6 +473,14 @@ export function App() {
       }
     });
   }, [camera, connected, role, sendDmMessage, snapshot?.session.syncLock, viewportSize]);
+
+  useEffect(() => {
+    if (role !== "dm" || !drawSyncEnabled || queuedStrokeCount <= 0) {
+      return;
+    }
+
+    flushQueuedStrokes();
+  }, [drawSyncEnabled, flushQueuedStrokes, queuedStrokeCount, role]);
 
   const handleCameraChange = useCallback(
     (nextCamera: CameraState, sourceViewport?: { width: number; height: number }) => {
@@ -492,6 +526,30 @@ export function App() {
     [camera, handleCameraChange, viewportSize]
   );
 
+  const resetViewToMap = useCallback(() => {
+    if (!loadedMap) {
+      return;
+    }
+
+    const viewportWidth = Math.max(1, viewportSize.width);
+    const viewportHeight = Math.max(1, viewportSize.height);
+    const mapWidth = Math.max(1, loadedMap.width);
+    const mapHeight = Math.max(1, loadedMap.height);
+
+    const fitZoom = clamp(Math.min(viewportWidth / mapWidth, viewportHeight / mapHeight), 0.15, 8);
+    const visibleWorldWidth = viewportWidth / fitZoom;
+    const visibleWorldHeight = viewportHeight / fitZoom;
+
+    handleCameraChange(
+      {
+        x: (mapWidth - visibleWorldWidth) / 2,
+        y: (mapHeight - visibleWorldHeight) / 2,
+        zoom: fitZoom
+      },
+      viewportSize
+    );
+  }, [handleCameraChange, loadedMap, viewportSize]);
+
   const applyLocalStroke = useCallback((stroke: FogStroke) => {
     setLocalFog((current) => {
       if (!current) {
@@ -512,13 +570,32 @@ export function App() {
 
       applyLocalStroke(stroke);
 
+      if (!drawSyncEnabled) {
+        queuedStrokesRef.current = [...queuedStrokesRef.current, stroke];
+        setQueuedStrokeCount(queuedStrokesRef.current.length);
+        return;
+      }
+
       sendDmMessage({
         type: "dm.fog.stroke",
         payload: { stroke }
       });
     },
-    [applyLocalStroke, role, sendDmMessage]
+    [applyLocalStroke, drawSyncEnabled, role, sendDmMessage]
   );
+
+  const toggleDrawSync = useCallback(() => {
+    if (role !== "dm") {
+      return;
+    }
+
+    const nextEnabled = !drawSyncEnabled;
+    setDrawSyncEnabled(nextEnabled);
+
+    if (nextEnabled) {
+      flushQueuedStrokes();
+    }
+  }, [drawSyncEnabled, flushQueuedStrokes, role]);
 
   const toggleSyncLock = useCallback(() => {
     if (role !== "dm" || !snapshot) {
@@ -595,22 +672,25 @@ export function App() {
         return null;
       }
 
-      const size = Math.max(loadedMap.width, loadedMap.height) * 2;
-
       return {
         brush: {
           shape: "square",
-          sizePx: size,
+          sizePx: 1,
           hardness: 1,
           mode
         },
-        pointsWorld: [
-          {
-            x: loadedMap.width / 2,
-            y: loadedMap.height / 2
-          }
-        ],
-        timestamp: Date.now()
+        pointsWorld: [],
+        rectangle: {
+          x: 0,
+          y: 0,
+          width: loadedMap.width,
+          height: loadedMap.height,
+          roundness: 0,
+          softness: 0,
+          mode
+        },
+        timestamp: Date.now(),
+        strokeGroupId: `full-map-${mode}-${Date.now()}`
       };
     },
     [loadedMap]
@@ -874,10 +954,16 @@ export function App() {
             <button type="button" onClick={toggleSyncLock}>
               Camera Sync: {snapshot?.session.syncLock ? "Locked" : "Unlocked"}
             </button>
-            <button type="button" onClick={sendUndo}>
+            <button type="button" onClick={toggleDrawSync}>
+              Draw Sync: {drawSyncEnabled ? "Live" : `Paused (${queuedStrokeCount})`}
+            </button>
+            <button type="button" onClick={resetViewToMap} disabled={!loadedMap}>
+              Reset View
+            </button>
+            <button type="button" onClick={sendUndo} disabled={!drawSyncEnabled || queuedStrokeCount > 0}>
               Undo
             </button>
-            <button type="button" onClick={sendRedo}>
+            <button type="button" onClick={sendRedo} disabled={!drawSyncEnabled || queuedStrokeCount > 0}>
               Redo
             </button>
             <button type="button" onClick={handleRevealAll}>
@@ -921,6 +1007,9 @@ export function App() {
         </div>
         {canEdit ? (
           <div className="zoom-overlay">
+            <button type="button" onClick={resetViewToMap} disabled={!loadedMap}>
+              Fit
+            </button>
             <button type="button" onClick={() => setZoomLevel(camera.zoom + 0.2)}>
               +
             </button>

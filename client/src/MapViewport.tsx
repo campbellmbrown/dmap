@@ -390,41 +390,53 @@ export function MapViewport(props: MapViewportProps) {
       return;
     }
 
-    const worldPoint = toWorldPoint(event.clientX, event.clientY);
-    if (!worldPoint) {
-      return;
-    }
-    const lastPoint = dragState.lastPaintPoint;
-    if (!lastPoint) {
+    const emitPaintPoint = (worldPoint: Point): void => {
+      const lastPoint = dragState.lastPaintPoint;
+      if (!lastPoint) {
+        dragState.lastPaintPoint = worldPoint;
+        if (props.onStroke) {
+          props.onStroke({
+            brush: props.brush,
+            pointsWorld: [worldPoint],
+            timestamp: Date.now(),
+            strokeGroupId: dragState.strokeGroupId ?? undefined
+          });
+        }
+        return;
+      }
+
+      const dx = worldPoint.x - lastPoint.x;
+      const dy = worldPoint.y - lastPoint.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < 0.25) {
+        return;
+      }
+
       dragState.lastPaintPoint = worldPoint;
+
       if (props.onStroke) {
         props.onStroke({
           brush: props.brush,
-          pointsWorld: [worldPoint],
+          pointsWorld: [lastPoint, worldPoint],
           timestamp: Date.now(),
           strokeGroupId: dragState.strokeGroupId ?? undefined
         });
       }
-      return;
-    }
+    };
 
-    const dx = worldPoint.x - lastPoint.x;
-    const dy = worldPoint.y - lastPoint.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
+    const nativePointerEvent = event.nativeEvent as PointerEvent;
+    const coalescedEvents =
+      typeof nativePointerEvent.getCoalescedEvents === "function"
+        ? nativePointerEvent.getCoalescedEvents()
+        : [nativePointerEvent];
 
-    if (distance < 1) {
-      return;
-    }
-
-    dragState.lastPaintPoint = worldPoint;
-
-    if (props.onStroke) {
-      props.onStroke({
-        brush: props.brush,
-        pointsWorld: [lastPoint, worldPoint],
-        timestamp: Date.now(),
-        strokeGroupId: dragState.strokeGroupId ?? undefined
-      });
+    for (const pointerSample of coalescedEvents) {
+      const worldPoint = toWorldPoint(pointerSample.clientX, pointerSample.clientY);
+      if (!worldPoint) {
+        continue;
+      }
+      emitPaintPoint(worldPoint);
     }
   };
 
