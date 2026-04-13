@@ -73,11 +73,18 @@ function syncedCameraForViewport(
     return camera;
   }
 
-  const zoom = Math.max(0.0001, camera.zoom);
+  const baseZoom = Math.max(0.0001, camera.zoom);
+  const referenceWidth = Math.max(1, cameraSync.viewportWidth || viewport.width);
+  const referenceHeight = Math.max(1, cameraSync.viewportHeight || viewport.height);
+  const widthScale = viewport.width / referenceWidth;
+  const heightScale = viewport.height / referenceHeight;
+  const scale = Number.isFinite(widthScale) && Number.isFinite(heightScale) ? Math.min(widthScale, heightScale) : 1;
+  const zoom = Math.max(0.0001, baseZoom * (scale > 0 ? scale : 1));
+
   return {
     x: cameraSync.centerWorldX - viewport.width / (2 * zoom),
     y: cameraSync.centerWorldY - viewport.height / (2 * zoom),
-    zoom: camera.zoom
+    zoom
   };
 }
 
@@ -90,18 +97,24 @@ function fitAspect(bounds: { width: number; height: number }, targetAspect: numb
     return bounds;
   }
 
+  const boundsAspect = bounds.width / Math.max(1, bounds.height);
+  const aspectDelta = Math.abs(boundsAspect - targetAspect) / Math.max(targetAspect, 0.0001);
+  if (aspectDelta <= 0.001) {
+    return bounds;
+  }
+
   const widthFromHeight = bounds.height * targetAspect;
   if (widthFromHeight <= bounds.width) {
     return {
-      width: Math.max(1, Math.floor(widthFromHeight)),
-      height: Math.max(1, Math.floor(bounds.height))
+      width: Math.max(1, Math.min(bounds.width, Math.round(widthFromHeight))),
+      height: Math.max(1, Math.round(bounds.height))
     };
   }
 
   const heightFromWidth = bounds.width / targetAspect;
   return {
-    width: Math.max(1, Math.floor(bounds.width)),
-    height: Math.max(1, Math.floor(heightFromWidth))
+    width: Math.max(1, Math.round(bounds.width)),
+    height: Math.max(1, Math.min(bounds.height, Math.round(heightFromWidth)))
   };
 }
 
@@ -127,8 +140,14 @@ export function App() {
     width: Math.max(1, window.innerWidth),
     height: Math.max(1, window.innerHeight)
   });
+  const [dmShellSize, setDmShellSize] = useState<{ width: number; height: number }>({
+    width: Math.max(1, window.innerWidth),
+    height: Math.max(1, window.innerHeight)
+  });
 
   const socketRef = useRef<SocketClient | null>(null);
+  const viewportShellRef = useRef<HTMLElement | null>(null);
+  const lastPublishedViewportRef = useRef<{ width: number; height: number } | null>(null);
   const syncLockRef = useRef<boolean>(true);
   const viewportSizeRef = useRef<{ width: number; height: number }>(viewportSize);
   const lastSocketMessageRef = useRef<number>(Date.now());
@@ -174,6 +193,33 @@ export function App() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  useEffect(() => {
+    if (role !== "dm") {
+      return;
+    }
+
+    const shell = viewportShellRef.current;
+    if (!shell) {
+      return;
+    }
+
+    const updateSize = (): void => {
+      const rect = shell.getBoundingClientRect();
+      setDmShellSize({
+        width: Math.max(1, Math.floor(rect.width)),
+        height: Math.max(1, Math.floor(rect.height))
+      });
+    };
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(shell);
+    updateSize();
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [role]);
 
   useEffect(() => {
     if (role !== "player" || !snapshot?.session.syncLock) {
@@ -363,6 +409,7 @@ export function App() {
       onStatus: (isConnected) => {
         setConnected(isConnected);
         if (isConnected) {
+          lastPublishedViewportRef.current = null;
           setError(null);
         }
       },
@@ -380,6 +427,26 @@ export function App() {
   const sendDmMessage = useCallback((payload: Parameters<SocketClient["send"]>[0]) => {
     socketRef.current?.send(payload);
   }, []);
+
+  useEffect(() => {
+    if (role !== "dm" || !connected || !snapshot?.session.syncLock) {
+      return;
+    }
+
+    const last = lastPublishedViewportRef.current;
+    if (last && last.width === viewportSize.width && last.height === viewportSize.height) {
+      return;
+    }
+
+    lastPublishedViewportRef.current = viewportSize;
+    sendDmMessage({
+      type: "dm.camera.set",
+      payload: {
+        camera,
+        cameraSync: buildCameraSyncMeta(camera, viewportSize)
+      }
+    });
+  }, [camera, connected, role, sendDmMessage, snapshot?.session.syncLock, viewportSize]);
 
   const handleCameraChange = useCallback(
     (nextCamera: CameraState, sourceViewport?: { width: number; height: number }) => {
@@ -601,7 +668,22 @@ export function App() {
   const activeMap = snapshot?.activeMap ?? null;
   const canEdit = role === "dm";
   const appShellClassName = canEdit ? "app-shell dm-mode" : "app-shell player-mode";
-  const viewportShellClassName = canEdit ? "viewport-shell" : "viewport-shell player-viewport-shell";
+  const viewportShellClassName = canEdit
+    ? "viewport-shell dm-viewport-shell"
+    : "viewport-shell player-viewport-shell";
+
+  const dmFrameStyle = useMemo<CSSProperties | undefined>(() => {
+    if (!canEdit) {
+      return undefined;
+    }
+
+    const targetAspect = windowSize.width / windowSize.height;
+    const fitted = fitAspect(dmShellSize, targetAspect);
+    return {
+      width: `${fitted.width}px`,
+      height: `${fitted.height}px`
+    };
+  }, [canEdit, dmShellSize, windowSize]);
 
   const playerFrameStyle = useMemo<CSSProperties | undefined>(() => {
     if (canEdit) {
@@ -819,8 +901,11 @@ export function App() {
         </aside>
       )}
 
-      <main className={viewportShellClassName}>
-        <div className={canEdit ? "viewport-frame" : "viewport-frame player-frame"} style={playerFrameStyle}>
+      <main ref={viewportShellRef} className={viewportShellClassName}>
+        <div
+          className={canEdit ? "viewport-frame dm-frame" : "viewport-frame player-frame"}
+          style={canEdit ? dmFrameStyle : playerFrameStyle}
+        >
           <MapViewport
             mode={role}
             mapSurface={loadedMap}
