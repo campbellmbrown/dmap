@@ -2,6 +2,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent
 } from "react";
@@ -16,8 +17,10 @@ interface MapViewportProps {
   fog: LocalFogState | null;
   camera: CameraState;
   brush: BrushConfig;
-  onCameraChange?: (camera: CameraState) => void;
+  activeTool?: "brush" | "pan";
+  onCameraChange?: (camera: CameraState, viewport: { width: number; height: number }) => void;
   onStroke?: (stroke: FogStroke) => void;
+  onViewportChange?: (size: { width: number; height: number }) => void;
 }
 
 interface DragState {
@@ -37,6 +40,7 @@ function clamp(value: number, min: number, max: number): number {
 export function MapViewport(props: MapViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const [hoverWorldPoint, setHoverWorldPoint] = useState<{ x: number; y: number } | null>(null);
 
   const createStrokeGroupId = (): string => {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -45,6 +49,16 @@ export function MapViewport(props: MapViewportProps) {
 
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   };
+
+  const currentViewportSize = (): { width: number; height: number } => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    return {
+      width: Math.max(1, rect?.width ?? window.innerWidth),
+      height: Math.max(1, rect?.height ?? window.innerHeight)
+    };
+  };
+
+  const isBrushToolActive = props.mode === "dm" && (props.activeTool ?? "brush") === "brush";
 
   const fogCanvas = useMemo(() => {
     if (!props.fog) {
@@ -121,20 +135,64 @@ export function MapViewport(props: MapViewportProps) {
       }
 
       context.restore();
+
+      if (isBrushToolActive && props.mapSurface && hoverWorldPoint) {
+        const radius = props.brush.sizePx / 2;
+
+        context.save();
+        context.translate(-camera.x * camera.zoom, -camera.y * camera.zoom);
+        context.scale(camera.zoom, camera.zoom);
+
+        context.lineWidth = Math.max(1, 1.5 / camera.zoom);
+        context.strokeStyle = "rgba(255, 255, 255, 0.95)";
+        context.fillStyle = "rgba(255, 255, 255, 0.1)";
+
+        if (props.brush.shape === "round") {
+          context.beginPath();
+          context.arc(hoverWorldPoint.x, hoverWorldPoint.y, radius, 0, Math.PI * 2);
+          context.fill();
+          context.stroke();
+        } else {
+          context.fillRect(hoverWorldPoint.x - radius, hoverWorldPoint.y - radius, radius * 2, radius * 2);
+          context.strokeRect(hoverWorldPoint.x - radius, hoverWorldPoint.y - radius, radius * 2, radius * 2);
+        }
+
+        context.restore();
+      }
     };
 
     render();
 
     const observer = new ResizeObserver(() => {
+      const rect = canvas.getBoundingClientRect();
+      props.onViewportChange?.({
+        width: Math.max(1, rect.width),
+        height: Math.max(1, rect.height)
+      });
       render();
     });
 
     observer.observe(canvas);
+    const initialRect = canvas.getBoundingClientRect();
+    props.onViewportChange?.({
+      width: Math.max(1, initialRect.width),
+      height: Math.max(1, initialRect.height)
+    });
 
     return () => {
       observer.disconnect();
     };
-  }, [props.camera, props.fog, props.mapSurface, fogCanvas]);
+  }, [
+    props.camera,
+    props.fog,
+    props.mapSurface,
+    isBrushToolActive,
+    props.brush.shape,
+    props.brush.sizePx,
+    props.onViewportChange,
+    fogCanvas,
+    hoverWorldPoint
+  ]);
 
   const toWorldPoint = (clientX: number, clientY: number): { x: number; y: number } | null => {
     const canvas = canvasRef.current;
@@ -160,8 +218,9 @@ export function MapViewport(props: MapViewportProps) {
       return;
     }
 
-    const isPanStart = event.button === 1 || event.button === 2;
-    const isPaintStart = event.button === 0;
+    const isPanTool = (props.activeTool ?? "brush") === "pan";
+    const isPanStart = isPanTool ? event.button === 0 || event.button === 1 || event.button === 2 : event.button === 1 || event.button === 2;
+    const isPaintStart = !isPanTool && event.button === 0;
 
     if (!isPanStart && !isPaintStart) {
       return;
@@ -171,6 +230,7 @@ export function MapViewport(props: MapViewportProps) {
     if (!worldPoint && isPaintStart) {
       return;
     }
+    setHoverWorldPoint(worldPoint);
 
     const strokeGroupId = isPaintStart ? createStrokeGroupId() : null;
 
@@ -198,6 +258,11 @@ export function MapViewport(props: MapViewportProps) {
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
+    if (props.mode === "dm") {
+      const hoverPoint = toWorldPoint(event.clientX, event.clientY);
+      setHoverWorldPoint(hoverPoint);
+    }
+
     const dragState = dragStateRef.current;
     if (!dragState || dragState.pointerId !== event.pointerId) {
       return;
@@ -215,7 +280,7 @@ export function MapViewport(props: MapViewportProps) {
         x: dragState.startCamera.x - dx / props.camera.zoom,
         y: dragState.startCamera.y - dy / props.camera.zoom,
         zoom: props.camera.zoom
-      });
+      }, currentViewportSize());
       return;
     }
 
@@ -223,7 +288,6 @@ export function MapViewport(props: MapViewportProps) {
     if (!worldPoint) {
       return;
     }
-
     const lastPoint = dragState.lastPaintPoint;
     if (!lastPoint) {
       dragState.lastPaintPoint = worldPoint;
@@ -295,17 +359,18 @@ export function MapViewport(props: MapViewportProps) {
       x: worldX - pointerX / nextZoom,
       y: worldY - pointerY / nextZoom,
       zoom: nextZoom
-    });
+    }, currentViewportSize());
   };
 
   return (
     <canvas
       ref={canvasRef}
-      className="map-canvas"
+      className={`map-canvas ${props.mode === "dm" && (props.activeTool ?? "brush") === "pan" ? "pan-mode" : "brush-mode"}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onPointerLeave={() => setHoverWorldPoint(null)}
       onWheel={onWheel}
       onContextMenu={(event) => event.preventDefault()}
     />

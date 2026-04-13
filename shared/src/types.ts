@@ -14,6 +14,13 @@ export interface CameraState {
   zoom: number;
 }
 
+export interface CameraSyncMeta {
+  centerWorldX: number;
+  centerWorldY: number;
+  viewportWidth: number;
+  viewportHeight: number;
+}
+
 export interface BrushConfig {
   shape: BrushShape;
   sizePx: number;
@@ -60,6 +67,7 @@ export interface SessionState {
   activeMapId: string | null;
   pdfPage: number;
   camera: CameraState;
+  cameraSync: CameraSyncMeta | null;
   syncLock: boolean;
   fogState: FogState | null;
   historyIndex: number;
@@ -89,14 +97,14 @@ export interface WsEnvelope<TType extends string, TPayload> {
 
 export type ServerToClientMessage =
   | WsEnvelope<"session.snapshot", SessionSnapshot>
-  | WsEnvelope<"dm.camera.set", { camera: CameraState }>
+  | WsEnvelope<"dm.camera.set", { camera: CameraState; cameraSync?: CameraSyncMeta | null }>
   | WsEnvelope<"dm.syncLock.set", { syncLock: boolean }>
   | WsEnvelope<"dm.fog.stroke", { stroke: FogStroke }>
   | WsEnvelope<"server.error", ServerErrorPayload>;
 
 export type ClientToServerMessage =
-  | WsEnvelope<"dm.camera.set", { camera: CameraState }>
-  | WsEnvelope<"dm.syncLock.set", { syncLock: boolean; camera?: CameraState }>
+  | WsEnvelope<"dm.camera.set", { camera: CameraState; cameraSync?: CameraSyncMeta | null }>
+  | WsEnvelope<"dm.syncLock.set", { syncLock: boolean; camera?: CameraState; cameraSync?: CameraSyncMeta | null }>
   | WsEnvelope<"dm.fog.stroke", { stroke: FogStroke }>
   | WsEnvelope<"dm.history.undo", Record<string, never>>
   | WsEnvelope<"dm.history.redo", Record<string, never>>;

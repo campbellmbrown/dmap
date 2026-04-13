@@ -212,9 +212,13 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
         payload: { syncLock: patch.syncLock }
       });
       if (patch.syncLock) {
+        const snapshot = sessionStore.getSnapshot();
         broadcastToPlayers({
           type: "dm.camera.set",
-          payload: { camera: sessionStore.getSnapshot().session.camera }
+          payload: {
+            camera: snapshot.session.camera,
+            cameraSync: snapshot.session.cameraSync
+          }
         });
       }
     }
@@ -332,10 +336,13 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
               break;
             }
 
-            sessionStore.setCamera(message.payload.camera);
+            sessionStore.setCamera(message.payload.camera, message.payload.cameraSync);
             broadcastToPlayers({
               type: "dm.camera.set",
-              payload: { camera: message.payload.camera }
+              payload: {
+                camera: message.payload.camera,
+                cameraSync: message.payload.cameraSync
+              }
             });
             break;
           }
@@ -348,10 +355,13 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
             });
 
             if (message.payload.syncLock && message.payload.camera) {
-              sessionStore.setCamera(message.payload.camera);
+              sessionStore.setCamera(message.payload.camera, message.payload.cameraSync);
               broadcastToPlayers({
                 type: "dm.camera.set",
-                payload: { camera: message.payload.camera }
+                payload: {
+                  camera: message.payload.camera,
+                  cameraSync: message.payload.cameraSync
+                }
               });
             }
 

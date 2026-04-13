@@ -14,6 +14,7 @@ import {
   getAdaptiveMaskSize,
   replayStrokes,
   type CameraState,
+  type CameraSyncMeta,
   type FogState,
   type FogStroke,
   type MapAsset,
@@ -37,6 +38,7 @@ interface PersistedState {
     activeMapId: string | null;
     pdfPage: number;
     camera: CameraState;
+    cameraSync: CameraSyncMeta | null;
     syncLock: boolean;
   };
   fogByKey: Record<string, PersistedFogHistory>;
@@ -69,6 +71,8 @@ export class SessionStore {
   private pdfPage = 1;
 
   private camera: CameraState = { x: 0, y: 0, zoom: 1 };
+
+  private cameraSync: CameraSyncMeta | null = null;
 
   private syncLock = true;
 
@@ -144,12 +148,16 @@ export class SessionStore {
     this.queueSave();
   }
 
-  public setCamera(camera: CameraState): void {
+  public setCamera(camera: CameraState, cameraSync?: CameraSyncMeta | null): void {
     this.camera = {
       x: Number.isFinite(camera.x) ? camera.x : 0,
       y: Number.isFinite(camera.y) ? camera.y : 0,
       zoom: Number.isFinite(camera.zoom) ? camera.zoom : 1
     };
+
+    if (cameraSync !== undefined) {
+      this.cameraSync = cameraSync;
+    }
     this.queueSave();
   }
 
@@ -232,6 +240,7 @@ export class SessionStore {
       activeMapId: activeMap?.id ?? null,
       pdfPage: this.pdfPage,
       camera: this.camera,
+      cameraSync: this.cameraSync,
       syncLock: this.syncLock,
       fogState: fog ? this.toFogState(fog) : null,
       historyIndex: fog?.historyIndex ?? 0
@@ -369,6 +378,7 @@ export class SessionStore {
         activeMapId: this.activeMapId,
         pdfPage: this.pdfPage,
         camera: this.camera,
+        cameraSync: this.cameraSync,
         syncLock: this.syncLock
       },
       fogByKey
@@ -396,6 +406,7 @@ export class SessionStore {
       this.activeMapId = parsed.session?.activeMapId ?? null;
       this.pdfPage = parsed.session?.pdfPage ?? 1;
       this.camera = parsed.session?.camera ?? this.camera;
+      this.cameraSync = parsed.session?.cameraSync ?? this.cameraSync;
       this.syncLock = parsed.session?.syncLock ?? this.syncLock;
 
       for (const [key, persistedFog] of Object.entries(parsed.fogByKey ?? {})) {

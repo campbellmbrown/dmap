@@ -4,6 +4,7 @@ import type {
   BootstrapResponse,
   BrushConfig,
   CameraState,
+  CameraSyncMeta,
   ClientRole,
   FogStroke,
   ServerToClientMessage,
@@ -41,6 +42,37 @@ function roomCodeFromUrl(): string {
   return new URLSearchParams(window.location.search).get("room") ?? "";
 }
 
+function buildCameraSyncMeta(camera: CameraState, viewport: { width: number; height: number }): CameraSyncMeta {
+  const zoom = Math.max(0.0001, camera.zoom);
+  return {
+    centerWorldX: camera.x + viewport.width / (2 * zoom),
+    centerWorldY: camera.y + viewport.height / (2 * zoom),
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height
+  };
+}
+
+function syncedCameraForViewport(
+  camera: CameraState,
+  cameraSync: CameraSyncMeta | null | undefined,
+  viewport: { width: number; height: number }
+): CameraState {
+  if (!cameraSync) {
+    return camera;
+  }
+
+  const zoom = Math.max(0.0001, camera.zoom);
+  return {
+    x: cameraSync.centerWorldX - viewport.width / (2 * zoom),
+    y: cameraSync.centerWorldY - viewport.height / (2 * zoom),
+    zoom: camera.zoom
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 export function App() {
   const role = useMemo(() => roleFromPath(window.location.pathname), []);
   const [roomCode, setRoomCode] = useState(() => roomCodeFromUrl());
@@ -53,8 +85,16 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [dmTool, setDmTool] = useState<"brush" | "pan">("brush");
+  const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
+    width: Math.max(1, window.innerWidth),
+    height: Math.max(1, window.innerHeight)
+  });
 
   const socketRef = useRef<SocketClient | null>(null);
+  const syncLockRef = useRef<boolean>(true);
+  const viewportSizeRef = useRef<{ width: number; height: number }>(viewportSize);
+  const lastSocketMessageRef = useRef<number>(Date.now());
 
   useEffect(() => {
     if (role === "dm") {
@@ -67,7 +107,11 @@ export function App() {
     fetchSession()
       .then((sessionSnapshot) => {
         setSnapshot(sessionSnapshot);
-        if (sessionSnapshot.session.syncLock || role === "player") {
+        if (role === "player" && sessionSnapshot.session.syncLock) {
+          setCamera(
+            syncedCameraForViewport(sessionSnapshot.session.camera, sessionSnapshot.session.cameraSync, viewportSize)
+          );
+        } else if (sessionSnapshot.session.syncLock || role === "player") {
           setCamera(sessionSnapshot.session.camera);
         }
       })
@@ -76,6 +120,82 @@ export function App() {
         setError(message);
       });
   }, [role]);
+
+  useEffect(() => {
+    const onResize = (): void => {
+      setViewportSize({
+        width: Math.max(1, window.innerWidth),
+        height: Math.max(1, window.innerHeight)
+      });
+    };
+
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    if (role !== "player" || !snapshot?.session.syncLock) {
+      return;
+    }
+
+    setCamera(syncedCameraForViewport(snapshot.session.camera, snapshot.session.cameraSync, viewportSize));
+  }, [role, snapshot?.session.syncLock, snapshot?.session.camera, snapshot?.session.cameraSync, viewportSize]);
+
+  useEffect(() => {
+    syncLockRef.current = snapshot?.session.syncLock ?? true;
+  }, [snapshot?.session.syncLock]);
+
+  useEffect(() => {
+    viewportSizeRef.current = viewportSize;
+  }, [viewportSize]);
+
+  useEffect(() => {
+    if (role !== "player" || !roomCode) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const resync = async (): Promise<void> => {
+      try {
+        const freshSnapshot = await fetchSession();
+        if (cancelled) {
+          return;
+        }
+
+        setSnapshot(freshSnapshot);
+        if (freshSnapshot.session.syncLock) {
+          setCamera(
+            syncedCameraForViewport(
+              freshSnapshot.session.camera,
+              freshSnapshot.session.cameraSync,
+              viewportSizeRef.current
+            )
+          );
+        }
+        lastSocketMessageRef.current = Date.now();
+      } catch (resyncError: unknown) {
+        if (cancelled) {
+          return;
+        }
+
+        const message = resyncError instanceof Error ? resyncError.message : "Failed to re-sync player session";
+        setError(message);
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      const silenceMs = Date.now() - lastSocketMessageRef.current;
+      if (!connected || silenceMs > 2_500) {
+        void resync();
+      }
+    }, 1_500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [connected, role, roomCode]);
 
   useEffect(() => {
     if (!snapshot?.session.fogState) {
@@ -113,6 +233,7 @@ export function App() {
 
   const handleSocketMessage = useCallback(
     (message: ServerToClientMessage) => {
+      lastSocketMessageRef.current = Date.now();
       switch (message.type) {
         case "session.snapshot": {
           setSnapshot(message.payload);
@@ -122,7 +243,15 @@ export function App() {
               setCamera(message.payload.session.camera);
             }
           } else {
-            setCamera((current) => (message.payload.session.syncLock ? message.payload.session.camera : current));
+            setCamera((current) =>
+              message.payload.session.syncLock
+                ? syncedCameraForViewport(
+                    message.payload.session.camera,
+                    message.payload.session.cameraSync,
+                    viewportSizeRef.current
+                  )
+                : current
+            );
           }
 
           break;
@@ -130,8 +259,10 @@ export function App() {
 
         case "dm.camera.set": {
           if (role === "player") {
-            setCamera(message.payload.camera);
-          } else if (snapshot?.session.syncLock) {
+            setCamera(
+              syncedCameraForViewport(message.payload.camera, message.payload.cameraSync, viewportSizeRef.current)
+            );
+          } else if (syncLockRef.current) {
             setCamera(message.payload.camera);
           }
           break;
@@ -176,7 +307,7 @@ export function App() {
           break;
       }
     },
-    [role, snapshot?.session.syncLock]
+    [role]
   );
 
   useEffect(() => {
@@ -187,7 +318,12 @@ export function App() {
     const socket = connectSocket({
       role,
       roomCode,
-      onStatus: setConnected,
+      onStatus: (isConnected) => {
+        setConnected(isConnected);
+        if (isConnected) {
+          setError(null);
+        }
+      },
       onMessage: handleSocketMessage,
       onError: setError
     });
@@ -204,7 +340,7 @@ export function App() {
   }, []);
 
   const handleCameraChange = useCallback(
-    (nextCamera: CameraState) => {
+    (nextCamera: CameraState, sourceViewport?: { width: number; height: number }) => {
       setCamera(nextCamera);
 
       if (role !== "dm") {
@@ -215,12 +351,36 @@ export function App() {
         return;
       }
 
+      const syncMeta = buildCameraSyncMeta(nextCamera, sourceViewport ?? viewportSize);
+
       sendDmMessage({
         type: "dm.camera.set",
-        payload: { camera: nextCamera }
+        payload: {
+          camera: nextCamera,
+          cameraSync: syncMeta
+        }
       });
     },
-    [role, sendDmMessage, snapshot?.session.syncLock]
+    [role, sendDmMessage, snapshot?.session.syncLock, viewportSize]
+  );
+
+  const setZoomLevel = useCallback(
+    (requestedZoom: number) => {
+      const nextZoom = clamp(requestedZoom, 0.15, 8);
+      const currentZoom = Math.max(0.0001, camera.zoom);
+      const centerWorldX = camera.x + viewportSize.width / (2 * currentZoom);
+      const centerWorldY = camera.y + viewportSize.height / (2 * currentZoom);
+
+      handleCameraChange(
+        {
+          x: centerWorldX - viewportSize.width / (2 * nextZoom),
+          y: centerWorldY - viewportSize.height / (2 * nextZoom),
+          zoom: nextZoom
+        },
+        viewportSize
+      );
+    },
+    [camera, handleCameraChange, viewportSize]
   );
 
   const applyLocalStroke = useCallback((stroke: FogStroke) => {
@@ -270,10 +430,11 @@ export function App() {
       type: "dm.syncLock.set",
       payload: {
         syncLock: nextSyncLock,
-        camera: nextSyncLock ? camera : undefined
+        camera: nextSyncLock ? camera : undefined,
+        cameraSync: nextSyncLock ? buildCameraSyncMeta(camera, viewportSize) : undefined
       }
     });
-  }, [camera, role, sendDmMessage, snapshot]);
+  }, [camera, role, sendDmMessage, snapshot, viewportSize]);
 
   const handleUploadFile = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -433,11 +594,32 @@ export function App() {
           </section>
 
           <section className="panel-group">
+            <h2>Tool</h2>
+            <div className="tool-toggle">
+              <button
+                type="button"
+                className={dmTool === "brush" ? "active-tool" : undefined}
+                onClick={() => setDmTool("brush")}
+              >
+                Brush
+              </button>
+              <button
+                type="button"
+                className={dmTool === "pan" ? "active-tool" : undefined}
+                onClick={() => setDmTool("pan")}
+              >
+                Pan
+              </button>
+            </div>
+          </section>
+
+          <section className="panel-group">
             <h2>Brush</h2>
             <label>
               Shape
               <select
                 value={brush.shape}
+                disabled={dmTool !== "brush"}
                 onChange={(event) => setBrush((current) => ({ ...current, shape: event.target.value as BrushConfig["shape"] }))}
               >
                 <option value="round">Round</option>
@@ -449,6 +631,7 @@ export function App() {
               Mode
               <select
                 value={brush.mode}
+                disabled={dmTool !== "brush"}
                 onChange={(event) => setBrush((current) => ({ ...current, mode: event.target.value as BrushConfig["mode"] }))}
               >
                 <option value="reveal">Reveal</option>
@@ -463,6 +646,7 @@ export function App() {
                 min={8}
                 max={420}
                 value={brush.sizePx}
+                disabled={dmTool !== "brush"}
                 onChange={(event) => setBrush((current) => ({ ...current, sizePx: Number(event.target.value) }))}
               />
             </label>
@@ -475,6 +659,7 @@ export function App() {
                 max={1}
                 step={0.01}
                 value={brush.hardness}
+                disabled={dmTool !== "brush"}
                 onChange={(event) => setBrush((current) => ({ ...current, hardness: Number(event.target.value) }))}
               />
             </label>
@@ -518,9 +703,31 @@ export function App() {
           fog={localFog}
           camera={camera}
           brush={brush}
+          activeTool={canEdit ? dmTool : "brush"}
           onCameraChange={canEdit ? handleCameraChange : undefined}
           onStroke={canEdit ? handleStroke : undefined}
+          onViewportChange={(size) => setViewportSize(size)}
         />
+        {canEdit ? (
+          <div className="zoom-overlay">
+            <button type="button" onClick={() => setZoomLevel(camera.zoom + 0.2)}>
+              +
+            </button>
+            <input
+              aria-label="Zoom"
+              type="range"
+              min={0.15}
+              max={8}
+              step={0.01}
+              value={camera.zoom}
+              onChange={(event) => setZoomLevel(Number(event.target.value))}
+            />
+            <button type="button" onClick={() => setZoomLevel(camera.zoom - 0.2)}>
+              -
+            </button>
+            <span>{camera.zoom.toFixed(2)}x</span>
+          </div>
+        ) : null}
       </main>
     </div>
   );

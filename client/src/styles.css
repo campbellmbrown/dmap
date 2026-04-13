@@ -56,6 +56,20 @@ body,
   gap: 8px;
 }
 
+.tool-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.tool-toggle button {
+  flex: 1;
+}
+
+.tool-toggle .active-tool {
+  background: rgba(80, 170, 255, 0.35);
+  border-color: rgba(120, 200, 255, 0.85);
+}
+
 .status-row,
 .error-text {
   margin: 0 0 10px;
@@ -127,6 +141,7 @@ button:hover,
   min-width: 0;
   min-height: 0;
   display: grid;
+  position: relative;
 }
 
 .map-canvas {
@@ -135,6 +150,47 @@ button:hover,
   display: block;
   touch-action: none;
   background: #0a0d14;
+}
+
+.map-canvas.brush-mode {
+  cursor: crosshair;
+}
+
+.map-canvas.pan-mode {
+  cursor: grab;
+}
+
+.map-canvas.pan-mode:active {
+  cursor: grabbing;
+}
+
+.zoom-overlay {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(10, 13, 20, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+.zoom-overlay input[type="range"] {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 24px;
+  height: 180px;
+}
+
+.zoom-overlay span {
+  font-size: 0.85rem;
+  min-width: 52px;
+  text-align: center;
 }
 
 .join-screen {
