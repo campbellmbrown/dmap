@@ -397,9 +397,10 @@ export function App() {
 
   const activeMap = snapshot?.activeMap ?? null;
   const canEdit = role === "dm";
+  const appShellClassName = canEdit ? "app-shell dm-mode" : "app-shell player-mode";
 
   return (
-    <div className="app-shell">
+    <div className={appShellClassName}>
       {canEdit && (
         <aside className="dm-panel">
           <h1>DM Controls</h1>

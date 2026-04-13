@@ -26,7 +26,8 @@ interface DragState {
   startX: number;
   startY: number;
   startCamera: CameraState;
-  points: Array<{ x: number; y: number }>;
+  lastPaintPoint: { x: number; y: number } | null;
+  strokeGroupId: string | null;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -36,6 +37,14 @@ function clamp(value: number, min: number, max: number): number {
 export function MapViewport(props: MapViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+
+  const createStrokeGroupId = (): string => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  };
 
   const fogCanvas = useMemo(() => {
     if (!props.fog) {
@@ -163,13 +172,25 @@ export function MapViewport(props: MapViewportProps) {
       return;
     }
 
+    const strokeGroupId = isPaintStart ? createStrokeGroupId() : null;
+
+    if (isPaintStart && worldPoint && props.onStroke) {
+      props.onStroke({
+        brush: props.brush,
+        pointsWorld: [worldPoint],
+        timestamp: Date.now(),
+        strokeGroupId: strokeGroupId ?? undefined
+      });
+    }
+
     dragStateRef.current = {
       pointerId: event.pointerId,
       type: isPanStart ? "pan" : "paint",
       startX: event.clientX,
       startY: event.clientY,
       startCamera: props.camera,
-      points: worldPoint ? [worldPoint] : []
+      lastPaintPoint: worldPoint ?? null,
+      strokeGroupId
     };
 
     (event.target as HTMLCanvasElement).setPointerCapture(event.pointerId);
@@ -203,10 +224,17 @@ export function MapViewport(props: MapViewportProps) {
       return;
     }
 
-    const points = dragState.points;
-    const lastPoint = points[points.length - 1];
+    const lastPoint = dragState.lastPaintPoint;
     if (!lastPoint) {
-      points.push(worldPoint);
+      dragState.lastPaintPoint = worldPoint;
+      if (props.onStroke) {
+        props.onStroke({
+          brush: props.brush,
+          pointsWorld: [worldPoint],
+          timestamp: Date.now(),
+          strokeGroupId: dragState.strokeGroupId ?? undefined
+        });
+      }
       return;
     }
 
@@ -214,8 +242,19 @@ export function MapViewport(props: MapViewportProps) {
     const dy = worldPoint.y - lastPoint.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    if (distance >= 1) {
-      points.push(worldPoint);
+    if (distance < 1) {
+      return;
+    }
+
+    dragState.lastPaintPoint = worldPoint;
+
+    if (props.onStroke) {
+      props.onStroke({
+        brush: props.brush,
+        pointsWorld: [lastPoint, worldPoint],
+        timestamp: Date.now(),
+        strokeGroupId: dragState.strokeGroupId ?? undefined
+      });
     }
   };
 
@@ -223,14 +262,6 @@ export function MapViewport(props: MapViewportProps) {
     const dragState = dragStateRef.current;
     if (!dragState || dragState.pointerId !== event.pointerId) {
       return;
-    }
-
-    if (dragState.type === "paint" && dragState.points.length > 0 && props.onStroke) {
-      props.onStroke({
-        brush: props.brush,
-        pointsWorld: dragState.points,
-        timestamp: Date.now()
-      });
     }
 
     dragStateRef.current = null;

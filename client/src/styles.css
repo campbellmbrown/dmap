@@ -24,6 +24,10 @@ body,
   height: 100%;
 }
 
+.app-shell.player-mode {
+  grid-template-columns: 1fr;
+}
+
 .dm-panel {
   overflow-y: auto;
   padding: 16px;

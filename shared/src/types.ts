@@ -25,6 +25,7 @@ export interface FogStroke {
   brush: BrushConfig;
   pointsWorld: Point[];
   timestamp: number;
+  strokeGroupId?: string;
 }
 
 export interface MapPageMeta {

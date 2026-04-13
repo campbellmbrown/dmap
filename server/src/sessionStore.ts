@@ -156,18 +156,30 @@ export class SessionStore {
   public applyStroke(stroke: FogStroke): void {
     const fog = this.ensureActiveFogHistory();
 
-    if (fog.historyIndex < fog.strokes.length) {
-      fog.strokes = fog.strokes.slice(0, fog.historyIndex);
-    }
+    const lastStroke = fog.strokes[fog.strokes.length - 1];
+    const shouldMergeWithLastStroke =
+      Boolean(stroke.strokeGroupId) &&
+      fog.historyIndex === fog.strokes.length &&
+      Boolean(lastStroke) &&
+      lastStroke.strokeGroupId === stroke.strokeGroupId;
 
-    fog.strokes.push(stroke);
-    fog.historyIndex += 1;
+    if (shouldMergeWithLastStroke && lastStroke) {
+      lastStroke.pointsWorld.push(...stroke.pointsWorld);
+      lastStroke.timestamp = stroke.timestamp;
+    } else {
+      if (fog.historyIndex < fog.strokes.length) {
+        fog.strokes = fog.strokes.slice(0, fog.historyIndex);
+      }
 
-    if (fog.strokes.length > MAX_HISTORY_STROKES) {
-      const overflow = fog.strokes.length - MAX_HISTORY_STROKES;
-      fog.strokes = fog.strokes.slice(overflow);
-      fog.historyIndex = Math.max(0, fog.historyIndex - overflow);
-      fog.dirtyMask = true;
+      fog.strokes.push(stroke);
+      fog.historyIndex += 1;
+
+      if (fog.strokes.length > MAX_HISTORY_STROKES) {
+        const overflow = fog.strokes.length - MAX_HISTORY_STROKES;
+        fog.strokes = fog.strokes.slice(overflow);
+        fog.historyIndex = Math.max(0, fog.historyIndex - overflow);
+        fog.dirtyMask = true;
+      }
     }
 
     if (fog.dirtyMask) {
